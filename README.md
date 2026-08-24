@@ -78,23 +78,11 @@ standard `dsh plugin` command — there is no need to hand-edit `package.json` o
 
 ### 1. Install the plugin
 
-From a git repo:
 
 ```sh
-dsh plugin --profile web add git+https://github.com/<you>/dsh-ollama-prompt-assistant.git -w
+dsh plugin --profile web add https://github.com/mihais01/dsh-ollama-prompt-assistant.git -w
 ```
 
-From a published registry:
-
-```sh
-dsh plugin --profile web add dsh-ollama-prompt-assistant -w
-```
-
-Or from a local checkout:
-
-```sh
-dsh plugin --profile web add file:D:/source/dsh-ollama-prompt-assistant -w
-```
 
 The `-w` flag makes pnpm add to the workspace root (the profile). `dsh plugin`
 forwards to `pnpm add` inside the profile, then reconciles the package into the
