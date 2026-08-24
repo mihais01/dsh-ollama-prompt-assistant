@@ -72,43 +72,41 @@ The plugin is a standard DSH **client plugin**:
 
 ## Installation
 
-### 1. Add the package to your web profile
+The package is a **DSH bundle** (declares `dsh.bundle`), so install it with the
+standard `dsh plugin` command — there is no need to hand-edit `package.json` or
+`cordis.patch.yml`.
 
-In `$DSH_HOME/profiles/web/package.json`, add the dependency. For a local
-checkout:
+### 1. Install the plugin
 
-```json
-"dependencies": {
-  "dsh-ollama-prompt-assistant": "file:D:/source/dsh-ollama-prompt-assistant"
-}
-```
-
-Or install it from a published registry / git URL:
+From a git repo:
 
 ```sh
-cd "$DSH_HOME/profiles/web"
-pnpm add dsh-ollama-prompt-assistant
+dsh plugin --profile web add git+https://github.com/<you>/dsh-ollama-prompt-assistant.git -w
 ```
 
-### 2. Register the cordis row
-
-In `$DSH_HOME/profiles/web/cordis.patch.yml`:
-
-```yaml
-- insert:
-    - id: dsh-ollama-prompt-assistant
-      name: dsh-ollama-prompt-assistant
-```
-
-### 3. Install and restart
+From a published registry:
 
 ```sh
-cd "$DSH_HOME/profiles/web"
-pnpm install
-dsh --profile web
+dsh plugin --profile web add dsh-ollama-prompt-assistant -w
 ```
 
-The client-modules node half scans the loader for packages declaring
+Or from a local checkout:
+
+```sh
+dsh plugin --profile web add file:D:/source/dsh-ollama-prompt-assistant -w
+```
+
+The `-w` flag makes pnpm add to the workspace root (the profile). `dsh plugin`
+forwards to `pnpm add` inside the profile, then reconciles the package into the
+profile's `bundles` list automatically because it declares `dsh.bundle`.
+
+### 2. Restart the web profile
+
+```sh
+dsh web
+```
+
+That's it. The client-modules node half scans the loader for packages declaring
 `dsh.client`, serves `/plugins/dsh-ollama-prompt-assistant/client.js`, and the
 browser half registers the toggle. **A web-server restart is required** for the
 plugin to be picked up (the client-plugin HMR path only auto-reloads when
@@ -141,7 +139,8 @@ Change them to point at a remote OLLAMA host or a different model.
 
 ```
 dsh-ollama-prompt-assistant/
-├── package.json          # dsh.client declaration + exports
+├── package.json          # dsh.bundle + dsh.client declarations + exports
+├── cordis.patch.yml      # bundle patch: inserts the cordis row for this package
 ├── lib/
 │   ├── index.js          # host (node) half — empty apply, makes it a cordis entry
 │   └── client.js         # browser half — the built client bundle (module-loader format)

@@ -1,0 +1,7 @@
+# dsh-ollama-prompt-assistant bundle patch.
+# Declared as `dsh.bundle.patch` in package.json so `dsh plugin add` reconciles
+# this package into the profile's layer stack and this row registers the
+# browser half with the client-modules scanner.
+- insert:
+    - id: dsh-ollama-prompt-assistant
+      name: dsh-ollama-prompt-assistant
