@@ -64,19 +64,6 @@ function OllamaPromptToggle({ input, inputActions }: OllamaPromptToggleProps) {
     if (open && msgsRef.current !== null) msgsRef.current.scrollTop = msgsRef.current.scrollHeight;
   }, [open, messages, busy]);
 
-  // Dismiss the panel on a click outside it (and outside the toggle).
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (event: PointerEvent) => {
-      const target = event.target as Node | null;
-      if (panelRef.current !== null && target !== null && panelRef.current.contains(target)) return;
-      if (buttonRef.current !== null && target !== null && buttonRef.current.contains(target)) return;
-      setOpen(false);
-    };
-    document.addEventListener('pointerdown', onDown);
-    return () => document.removeEventListener('pointerdown', onDown);
-  }, [open]);
-
   const lastAssistant = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) if (messages[i].role === 'assistant') return messages[i];
     return null;

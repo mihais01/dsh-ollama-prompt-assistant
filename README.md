@@ -120,7 +120,8 @@ plugin to be picked up (the client-plugin HMR path only auto-reloads when
 **Panel controls:**
 - **Accept** — paste the last assistant reply into the composer and close.
 - **Clear** — reset the conversation (keep the panel open).
-- **×** / click outside — close the panel.
+- **×** — close the panel (clicking outside the panel does **not** close it, so
+  you can keep editing the composer while refining).
 
 While the model is generating, the panel shows a `Ollama is thinking…` spinner
 and the send button is disabled, so you always know when it's working.
