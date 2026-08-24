@@ -108,8 +108,17 @@ plugin to be picked up (the client-plugin HMR path only auto-reloads when
    model's output.
 4. Send as usual — the AI now receives the OLLAMA output as its prompt.
 
-The toggle shows `Ollama ✓` while active. If the input is empty or OLLAMA
-errors, the reason appears as the button's tooltip.
+The toggle gives clear **visual feedback** while OLLAMA is processing:
+
+| State     | Appearance                                   | Meaning                                      |
+| --------- | ------------------------------------------- | -------------------------------------------- |
+| Idle      | `Ollama` (transparent)                      | Ready to send the draft                      |
+| Running   | `⟳ Rewriting…` (amber, spinner)            | Draft sent; OLLAMA is generating             |
+| Applied   | `Ollama ✓` (green)                          | Draft replaced with OLLAMA's output          |
+| Error     | `Ollama` (red border)                       | Empty input or OLLAMA failed; reason in tooltip |
+
+The button is disabled and shows a spinning indicator while the model is
+running, so you always know when it's working.
 
 ## Configuration
 

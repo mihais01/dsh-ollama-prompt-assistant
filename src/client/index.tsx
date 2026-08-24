@@ -1,5 +1,5 @@
 /**
- * ollama-prompt-assistant — browser half source.
+ * dsh-ollama-prompt-assistant — browser half source.
  *
  * This is the readable source that `lib/client.js` is bundled from. It is kept
  * in sync by hand for this standalone plugin; a real build would use tsdown
@@ -7,13 +7,27 @@
  * `window.__ModuleLoader__.load({ id, factory })`.
  */
 import { useState } from 'react';
-import { jsx } from 'react/jsx-runtime';
+import { Fragment, jsx, jsxs } from 'react/jsx-runtime';
+import type { CSSProperties } from 'react';
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client';
 import type { InputActions, InputState } from '@deepseek-ai/dsh-client-ui-conversation/client';
 
 /** The OLLAMA service. `ollama run ALIENTELLIGENCE/aipromptassistant` is the CLI over this HTTP endpoint. */
 const OLLAMA_URL = 'http://localhost:11434/api/generate';
 const OLLAMA_MODEL = 'ALIENTELLIGENCE/aipromptassistant';
+
+/** Spinner keyframes id (injected once into the document head). */
+const SPIN_CSS_ID = 'dsh-ollama-prompt-assistant/spin';
+
+function injectSpinKeyframes(): void {
+  if (typeof document === 'undefined') return;
+  if (document.querySelector(`style[data-plugin-css="${SPIN_CSS_ID}"]`) !== null) return;
+  const tag = document.createElement('style');
+  tag.dataset.plugin = 'dsh-ollama-prompt-assistant';
+  tag.dataset.pluginCss = SPIN_CSS_ID;
+  tag.textContent = '@keyframes dsh-ollama-spin{to{transform:rotate(360deg)}}';
+  document.head.appendChild(tag);
+}
 
 async function runOllama(prompt: string): Promise<string> {
   const res = await fetch(OLLAMA_URL, {
@@ -41,8 +55,8 @@ function OllamaPromptToggle({ input, inputActions }: OllamaPromptToggleProps) {
   const [error, setError] = useState<string | null>(null);
 
   const toggle = async () => {
-    if (enabled) {
-      setEnabled(false);
+    if (busy || enabled) {
+      if (enabled) setEnabled(false);
       return;
     }
     const draft = input.draft;
@@ -63,26 +77,54 @@ function OllamaPromptToggle({ input, inputActions }: OllamaPromptToggleProps) {
     }
   };
 
-  const label = busy ? '…' : enabled ? 'Ollama ✓' : 'Ollama';
+  const spinner: CSSProperties = {
+    display: 'inline-block',
+    width: '10px',
+    height: '10px',
+    border: '2px solid rgba(255,255,255,0.35)',
+    borderTopColor: '#fff',
+    borderRadius: '50%',
+    marginRight: '6px',
+    flex: 'none',
+    animation: 'dsh-ollama-spin 0.7s linear infinite',
+  };
+
+  const label = busy
+    ? jsxs(Fragment, { children: [jsx('span', { 'aria-hidden': true, style: spinner }), 'Rewriting…'] })
+    : enabled
+      ? 'Ollama ✓'
+      : 'Ollama';
+
+  const title = error ?? (busy
+    ? 'Sending the draft to Ollama…'
+    : 'Send the draft to Ollama and use its output as the prompt');
+
   return jsx('button', {
     type: 'button',
     onClick: toggle,
     disabled: busy,
-    title: error ?? 'Send the draft to Ollama and use its output as the prompt',
+    title,
     'aria-pressed': enabled,
     style: {
       display: 'inline-flex',
       alignItems: 'center',
+      gap: '4px',
       height: '24px',
       padding: '0 8px',
-      border: '1px solid var(--dsw-alias-border-l2, #d0d0d0)',
+      border: error
+        ? '1px solid var(--dsw-alias-state-error-primary, #f03e3e)'
+        : '1px solid var(--dsw-alias-border-l2, #d0d0d0)',
       borderRadius: '6px',
-      background: enabled ? 'var(--dsw-alias-state-success-primary, #2f9e44)' : 'transparent',
-      color: enabled ? '#fff' : 'var(--dsw-alias-label-secondary, #555)',
+      background: busy
+        ? 'var(--dsw-alias-state-warn-primary, #e8590c)'
+        : enabled
+          ? 'var(--dsw-alias-state-success-primary, #2f9e44)'
+          : 'transparent',
+      color: busy || enabled ? '#fff' : 'var(--dsw-alias-label-secondary, #555)',
       fontSize: '12px',
       lineHeight: '24px',
-      cursor: busy ? 'wait' : 'pointer',
-      opacity: busy ? 0.6 : 1,
+      cursor: busy ? 'progress' : 'pointer',
+      transition: 'background 150ms ease, border-color 150ms ease',
     },
     children: label,
   });
@@ -93,11 +135,12 @@ export const inject = ['slots'];
 
 /** Client plugin body: register the toggle into the composer's right tool-row seat. */
 export function apply(ctx: ClientContext): void {
+  injectSpinKeyframes();
   ctx.slots.inject('conversation.input.right', () =>
     ctx.slots.register(
       {
         name: 'conversation.input.right',
-        id: 'ollama-prompt-assistant',
+        id: 'dsh-ollama-prompt-assistant',
       },
       OllamaPromptToggle,
     ),
