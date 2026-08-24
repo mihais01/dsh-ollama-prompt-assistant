@@ -1,9 +1,11 @@
 # dsh-ollama-prompt-assistant
 
-A **DeepSeek Harness (DSH) Web client plugin** that adds a toggle next to the
-composer input box. When switched on, it sends the current input-box content to
-the **OLLAMA** service (`ollama run ALIENTELLIGENCE/aipromptassistant`) and uses
-the model's output as the prompt for the AI.
+A **DeepSeek Harness (DSH) Web client plugin** that adds an **Ollama** button
+next to the composer input box. Clicking it opens a small in-browser chat panel
+where you converse with the local **OLLAMA** model
+(`ollama run ALIENTELLIGENCE/aipromptassistant`) to refine your prompt
+back-and-forth until it says what you want — then **Accept** pastes the last
+assistant reply into the main input box as the prompt for the AI.
 
 ![DSH Web plugin](https://img.shields.io/badge/DSH-Web%20plugin-4c1d95)
 ![license](https://img.shields.io/badge/license-MIT-green)
@@ -26,39 +28,42 @@ the model's output as the prompt for the AI.
 
 ## What it does
 
-- Registers a small toggle into the composer's **right tool-row seat**
-  (`conversation.input.right`), i.e. just left of the send button.
-- On **toggle-on**, it reads the current draft, sends it to the OLLAMA service
-  with the model `ALIENTELLIGENCE/aipromptassistant`, and **replaces the draft
-  with the model's response** — so the AI then receives the OLLAMA output as
-  its prompt.
-- On **toggle-off** it simply turns the switch back off (the draft is kept).
+- Adds an **Ollama** button to the composer's right tool-row
+  (`conversation.input.right`), just left of the send button.
+- Clicking it opens a **floating chat panel** inside the browser, seeded with
+  the current composer draft as the first message (if any).
+- You chat with the local OLLAMA model to shape the prompt — each turn sends the
+  full conversation, so the model keeps context.
+- When the prompt is right, press **Accept** — the last assistant reply is
+  pasted into the main input box as the prompt for the AI. **Clear** resets the
+  conversation; the **×** (or a click outside the panel) closes it.
 
-This is useful when you want a local model to rewrite, expand, or clarify your
-message before it is sent to the main assistant.
+This is useful when you want a local model to help you rewrite, expand, or
+clarify your message before it is sent to the main assistant.
 
 ## How it works
 
 The browser cannot spawn the `ollama run` CLI directly, so the plugin calls the
-OLLAMA **HTTP API** that the CLI wraps:
+OLLAMA **HTTP API** that the CLI wraps — the multi-turn `/api/chat` endpoint:
 
 ```
-POST http://localhost:11434/api/generate
+POST http://localhost:11434/api/chat
 Content-Type: application/json
 
-{ "model": "ALIENTELLIGENCE/aipromptassistant", "prompt": "<draft>", "stream": false }
+{ "model": "ALIENTELLIGENCE/aipromptassistant", "messages": [{ "role": "user", "content": "…" }], "stream": false }
 ```
 
-The response's `response` field becomes the new draft.
+The response's `message.content` is appended to the conversation; the full
+`messages` array is sent on every turn so the model keeps context. **Accept**
+writes the last assistant `message.content` to the composer via the standard
+`inputActions.setDraft(...)` session kit.
 
 The plugin is a standard DSH **client plugin**:
 
 - The **host (node) half** (`lib/index.js`) is an empty `apply` — it exists so
   the package appears as a cordis plugin entry in the host Loader.
 - The **browser half** (`lib/client.js`) is a module-loader bundle that
-  registers the toggle into the `conversation.input.right` slot. It reads the
-  draft from the `input` owner share and writes the result through the
-  `inputActions.setDraft(...)` standard session kit.
+  registers the button + chat panel into the `conversation.input.right` slot.
 
 ## Requirements
 
@@ -102,33 +107,33 @@ plugin to be picked up (the client-plugin HMR path only auto-reloads when
 
 ## Usage
 
-1. Type a message in the composer input box.
-2. Click the **Ollama** toggle (just left of the send button).
-3. The draft is sent to OLLAMA; when it returns, the draft is replaced with the
-   model's output.
-4. Send as usual — the AI now receives the OLLAMA output as its prompt.
+1. Type a message (or leave it blank) in the composer input box.
+2. Click the **Ollama** button (just left of the send button). A chat panel
+   opens, seeded with your current draft as the first message.
+3. Chat with the local model to refine the prompt — type a follow-up and press
+   **Enter** (or **Send**). Use **Shift+Enter** for a newline. Each turn keeps
+   the full conversation, so the model has context.
+4. When the prompt is right, press **Accept** — the last assistant reply is
+   pasted into the main input box.
+5. Send as usual — the AI now receives the refined prompt.
 
-The toggle gives clear **visual feedback** while OLLAMA is processing:
+**Panel controls:**
+- **Accept** — paste the last assistant reply into the composer and close.
+- **Clear** — reset the conversation (keep the panel open).
+- **×** / click outside — close the panel.
 
-| State     | Appearance                                   | Meaning                                      |
-| --------- | ------------------------------------------- | -------------------------------------------- |
-| Idle      | `Ollama` (transparent)                      | Ready to send the draft                      |
-| Running   | `⟳ Rewriting…` (amber, spinner)            | Draft sent; OLLAMA is generating             |
-| Applied   | `Ollama ✓` (green)                          | Draft replaced with OLLAMA's output          |
-| Error     | `Ollama` (red border)                       | Empty input or OLLAMA failed; reason in tooltip |
-
-The button is disabled and shows a spinning indicator while the model is
-running, so you always know when it's working.
+While the model is generating, the panel shows a `Ollama is thinking…` spinner
+and the send button is disabled, so you always know when it's working.
 
 ## Configuration
 
 The endpoint and model are constants at the top of `lib/client.js` (and
 `src/client/index.tsx`):
 
-| Constant       | Default                               | Purpose                          |
-| -------------- | ------------------------------------- | -------------------------------- |
-| `OLLAMA_URL`   | `http://localhost:11434/api/generate` | OLLAMA generate endpoint         |
-| `OLLAMA_MODEL` | `ALIENTELLIGENCE/aipromptassistant`   | Model used to rewrite the prompt |
+| Constant       | Default                             | Purpose                          |
+| -------------- | ----------------------------------- | -------------------------------- |
+| `OLLAMA_URL`   | `http://localhost:11434/api/chat`   | OLLAMA chat endpoint              |
+| `OLLAMA_MODEL` | `ALIENTELLIGENCE/aipromptassistant` | Model used to refine the prompt   |
 
 Change them to point at a remote OLLAMA host or a different model.
 

@@ -6,38 +6,31 @@
  * (see the README). The bundle format is the DSH client module loader:
  * `window.__ModuleLoader__.load({ id, factory })`.
  */
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Fragment, jsx, jsxs } from 'react/jsx-runtime';
-import type { CSSProperties } from 'react';
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client';
 import type { InputActions, InputState } from '@deepseek-ai/dsh-client-ui-conversation/client';
 
 /** The OLLAMA service. `ollama run ALIENTELLIGENCE/aipromptassistant` is the CLI over this HTTP endpoint. */
-const OLLAMA_URL = 'http://localhost:11434/api/generate';
+const OLLAMA_URL = 'http://localhost:11434/api/chat';
 const OLLAMA_MODEL = 'ALIENTELLIGENCE/aipromptassistant';
 
-/** Spinner keyframes id (injected once into the document head). */
-const SPIN_CSS_ID = 'dsh-ollama-prompt-assistant/spin';
-
-function injectSpinKeyframes(): void {
-  if (typeof document === 'undefined') return;
-  if (document.querySelector(`style[data-plugin-css="${SPIN_CSS_ID}"]`) !== null) return;
-  const tag = document.createElement('style');
-  tag.dataset.plugin = 'dsh-ollama-prompt-assistant';
-  tag.dataset.pluginCss = SPIN_CSS_ID;
-  tag.textContent = '@keyframes dsh-ollama-spin{to{transform:rotate(360deg)}}';
-  document.head.appendChild(tag);
+/** One chat message in the multi-turn conversation. */
+interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
 }
 
-async function runOllama(prompt: string): Promise<string> {
+/** Send a multi-turn conversation to the OLLAMA service and return the assistant reply. */
+async function chatWithOllama(messages: ChatMessage[]): Promise<string> {
   const res = await fetch(OLLAMA_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: OLLAMA_MODEL, prompt, stream: false }),
+    body: JSON.stringify({ model: OLLAMA_MODEL, messages, stream: false }),
   });
   if (!res.ok) throw new Error(`Ollama HTTP ${res.status}`);
-  const data = (await res.json()) as { response?: string };
-  const output = (data.response ?? '').trim();
+  const data = (await res.json()) as { message?: { content?: string } };
+  const output = (data.message?.content ?? '').trim();
   if (output === '') throw new Error('Ollama returned an empty response');
   return output;
 }
@@ -49,27 +42,58 @@ interface OllamaPromptToggleProps {
   inputActions: InputActions;
 }
 
+/**
+ * The composer tool-row toggle (`conversation.input.right`).
+ *
+ * Clicking opens a small floating chat panel where the user refines the prompt
+ * with the OLLAMA model in a multi-turn conversation. An "Accept" button pastes
+ * the last assistant reply into the main input box.
+ */
 function OllamaPromptToggle({ input, inputActions }: OllamaPromptToggleProps) {
-  const [enabled, setEnabled] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [chatDraft, setChatDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const msgsRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
-  const toggle = async () => {
-    if (busy || enabled) {
-      if (enabled) setEnabled(false);
-      return;
-    }
-    const draft = input.draft;
-    if (draft.trim() === '') {
-      setError('Input is empty');
-      return;
-    }
+  // Auto-scroll the message list to the latest message.
+  useEffect(() => {
+    if (open && msgsRef.current !== null) msgsRef.current.scrollTop = msgsRef.current.scrollHeight;
+  }, [open, messages, busy]);
+
+  // Dismiss the panel on a click outside it (and outside the toggle).
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (panelRef.current !== null && target !== null && panelRef.current.contains(target)) return;
+      if (buttonRef.current !== null && target !== null && buttonRef.current.contains(target)) return;
+      setOpen(false);
+    };
+    document.addEventListener('pointerdown', onDown);
+    return () => document.removeEventListener('pointerdown', onDown);
+  }, [open]);
+
+  const lastAssistant = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) if (messages[i].role === 'assistant') return messages[i];
+    return null;
+  }, [messages]);
+
+  /** Send the current chat draft (and full history) to OLLAMA. */
+  const send = async (text: string) => {
+    const content = text.trim();
+    if (content === '' || busy) return;
+    const next: ChatMessage[] = [...messages, { role: 'user', content }];
+    setMessages(next);
+    setChatDraft('');
     setBusy(true);
     setError(null);
     try {
-      const output = await runOllama(draft);
-      inputActions.setDraft(output);
-      setEnabled(true);
+      const reply = await chatWithOllama(next);
+      setMessages([...next, { role: 'assistant', content: reply }]);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -77,56 +101,140 @@ function OllamaPromptToggle({ input, inputActions }: OllamaPromptToggleProps) {
     }
   };
 
-  const spinner: CSSProperties = {
-    display: 'inline-block',
-    width: '10px',
-    height: '10px',
-    border: '2px solid rgba(255,255,255,0.35)',
-    borderTopColor: '#fff',
-    borderRadius: '50%',
-    marginRight: '6px',
-    flex: 'none',
-    animation: 'dsh-ollama-spin 0.7s linear infinite',
+  /** Open the panel, seeding the conversation with the composer draft. */
+  const openPanel = () => {
+    const seed = input.draft.trim();
+    setMessages(seed === '' ? [] : [{ role: 'user', content: seed }]);
+    setChatDraft('');
+    setError(null);
+    setOpen(true);
   };
 
-  const label = busy
-    ? jsxs(Fragment, { children: [jsx('span', { 'aria-hidden': true, style: spinner }), 'Rewriting…'] })
-    : enabled
-      ? 'Ollama ✓'
-      : 'Ollama';
+  const closePanel = () => setOpen(false);
 
-  const title = error ?? (busy
-    ? 'Sending the draft to Ollama…'
-    : 'Send the draft to Ollama and use its output as the prompt');
+  /** Paste the last assistant reply into the main input box and close. */
+  const accept = () => {
+    if (lastAssistant !== null) {
+      inputActions.setDraft(lastAssistant.content);
+      setOpen(false);
+    }
+  };
 
-  return jsx('button', {
-    type: 'button',
-    onClick: toggle,
-    disabled: busy,
-    title,
-    'aria-pressed': enabled,
-    style: {
-      display: 'inline-flex',
-      alignItems: 'center',
-      gap: '4px',
-      height: '24px',
-      padding: '0 8px',
-      border: error
-        ? '1px solid var(--dsw-alias-state-error-primary, #f03e3e)'
-        : '1px solid var(--dsw-alias-border-l2, #d0d0d0)',
-      borderRadius: '6px',
-      background: busy
-        ? 'var(--dsw-alias-state-warn-primary, #e8590c)'
-        : enabled
-          ? 'var(--dsw-alias-state-success-primary, #2f9e44)'
-          : 'transparent',
-      color: busy || enabled ? '#fff' : 'var(--dsw-alias-label-secondary, #555)',
-      fontSize: '12px',
-      lineHeight: '24px',
-      cursor: busy ? 'progress' : 'pointer',
-      transition: 'background 150ms ease, border-color 150ms ease',
-    },
-    children: label,
+  /** Reset the conversation but keep the panel open. */
+  const clear = () => {
+    setMessages([]);
+    setError(null);
+  };
+
+  const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      void send(chatDraft);
+    }
+  };
+
+  return jsxs(Fragment, {
+    children: [
+      jsx('button', {
+        ref: buttonRef,
+        type: 'button',
+        className: 'dshOpa_toggle',
+        'data-active': open || undefined,
+        onClick: open ? closePanel : openPanel,
+        title: open ? 'Close the Ollama prompt assistant' : 'Open the Ollama prompt assistant to refine the prompt',
+        'aria-pressed': open,
+        children: open ? 'Ollama ▴' : 'Ollama',
+      }),
+      open &&
+        jsxs('div', {
+          ref: panelRef,
+          className: 'dshOpa_panel',
+          role: 'dialog',
+          'aria-label': 'Ollama prompt assistant',
+          children: [
+            jsxs('div', {
+              className: 'dshOpa_header',
+              children: [
+                jsx('span', { className: 'dshOpa_title', children: 'Ollama prompt assistant' }),
+                jsx('button', {
+                  type: 'button',
+                  className: 'dshOpa_close',
+                  'aria-label': 'Close',
+                  onClick: closePanel,
+                  children: '×',
+                }),
+              ],
+            }),
+            jsxs('div', {
+              ref: msgsRef,
+              className: 'dshOpa_msgs',
+              children: [
+                messages.length === 0 && !busy && jsx('p', {
+                  className: 'dshOpa_empty',
+                  children:
+                    'Describe what you want the AI to do. Ollama will help you shape the prompt — when you are happy, press Accept.',
+                }),
+                ...messages.map((message, index) =>
+                  jsx(
+                    'div',
+                    {
+                      className: message.role === 'user' ? 'dshOpa_msg dshOpa_user' : 'dshOpa_msg dshOpa_asst',
+                      children: message.content,
+                    },
+                    index,
+                  ),
+                ),
+                busy &&
+                  jsxs('span', {
+                    className: 'dshOpa_thinking',
+                    children: [jsx('span', { className: 'dshOpa_dot', 'aria-hidden': true }), 'Ollama is thinking…'],
+                  }),
+              ],
+            }),
+            error !== null && jsx('div', { className: 'dshOpa_error', role: 'alert', children: error }),
+            jsxs('div', {
+              className: 'dshOpa_inputRow',
+              children: [
+                jsx('textarea', {
+                  className: 'dshOpa_input',
+                  value: chatDraft,
+                  onChange: (event) => setChatDraft(event.target.value),
+                  onKeyDown,
+                  rows: 1,
+                  placeholder: 'Ask Ollama to refine the prompt…',
+                  disabled: busy,
+                }),
+                jsx('button', {
+                  type: 'button',
+                  className: 'dshOpa_btn dshOpa_send',
+                  onClick: () => void send(chatDraft),
+                  disabled: busy || chatDraft.trim() === '',
+                  children: 'Send',
+                }),
+              ],
+            }),
+            jsxs('div', {
+              className: 'dshOpa_footer',
+              children: [
+                messages.length > 0 &&
+                  jsx('button', {
+                    type: 'button',
+                    className: 'dshOpa_btn dshOpa_clear',
+                    onClick: clear,
+                    children: 'Clear',
+                  }),
+                jsx('button', {
+                  type: 'button',
+                  className: 'dshOpa_btn dshOpa_accept',
+                  onClick: accept,
+                  disabled: lastAssistant === null,
+                  children: 'Accept',
+                }),
+              ],
+            }),
+          ],
+        }),
+    ],
   });
 }
 
@@ -135,7 +243,6 @@ export const inject = ['slots'];
 
 /** Client plugin body: register the toggle into the composer's right tool-row seat. */
 export function apply(ctx: ClientContext): void {
-  injectSpinKeyframes();
   ctx.slots.inject('conversation.input.right', () =>
     ctx.slots.register(
       {
